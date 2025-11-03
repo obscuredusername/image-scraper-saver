@@ -222,7 +222,7 @@ class ImageScraper:
                         logger.info(f"[save_and_process_image] Successfully read {len(img_data)} bytes of image data")
                         
                         try:
-                            # Convert to WebP with 65% 
+                            # Convert to WebP 
                             with Image.open(io.BytesIO(img_data)) as img:
                                 logger.info(f"[save_and_process_image] Opened image with mode: {img.mode}, size: {img.size}")
                                 
