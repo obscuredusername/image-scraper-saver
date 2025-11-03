@@ -1,17 +1,14 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Get database URL from environment variables or use default
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/image_scraper')
+from config import global_config as config
 
 # Create SQLAlchemy engine and session
 Base = declarative_base()
+
+# Get database URL from config
+DATABASE_URL = config.db.DATABASE_URL
+
 
 class ImageData(Base):
     __tablename__ = 'image_data'
@@ -68,7 +65,7 @@ def init_db(db_url=None):
     # Create a configured "Session" class
     SessionLocal.configure(bind=engine)
     
-    return session
+    return SessionLocal()
 
 def get_or_create_image_data(session, keyword):
     """Get or create an ImageData record"""

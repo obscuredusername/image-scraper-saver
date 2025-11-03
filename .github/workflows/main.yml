@@ -1,0 +1,84 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CONTAINER_NAME: image-scraper
+  IMAGES_DIR: /var/www/images
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        load: true
+        tags: ${{ env.CONTAINER_NAME }}:latest
+
+    - name: Save Docker image
+      run: docker save -o image.tar ${{ env.CONTAINER_NAME }}:latest
+
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Copy image to server using rsync
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+      run: |
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+        rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+          image.tar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/image.tar
+
+    - name: Deploy on server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Load the Docker image
+          docker load -i ~/image.tar
+          
+          # Stop and remove existing container if it exists
+          docker stop ${{ env.CONTAINER_NAME }} || true
+          docker rm ${{ env.CONTAINER_NAME }} || true
+          
+          # Create necessary directories with proper permissions
+          sudo mkdir -p ${{ env.IMAGES_DIR }}
+          sudo chown -R ${{ secrets.SERVER_USER }}:www-data ${{ env.IMAGES_DIR }}
+          sudo chmod -R 775 ${{ env.IMAGES_DIR }}
+          
+          # Create .env file from GitHub Secrets
+          cat << 'EOF' > .env
+          ${{ secrets.ENV_FILE_CONTENTS }}
+          EOF
+          
+          # Run the container with environment variables and volume mounts
+          docker run -d \
+            --name ${{ env.CONTAINER_NAME }} \
+            --restart unless-stopped \
+            -p ${{ secrets.IMAGE_PORT }}:8000 \
+            -v ${{ env.IMAGES_DIR }}:/var/www/images \
+            -v $(pwd)/watermark:/app/watermark \
+            --env-file .env \
+            ${{ env.CONTAINER_NAME }}:latest
+          
+          # Clean up
+          rm -f ~/image.tar .env
+          docker image prune -af

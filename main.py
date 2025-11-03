@@ -8,6 +8,7 @@ from models import ImageData, init_db, SessionLocal
 from sqlalchemy.orm import Session
 import uvicorn
 import logging
+from config import global_config as config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -129,4 +130,9 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=config.app.IMAGE_PORT,
+        reload=True
+    )
