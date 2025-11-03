@@ -3,11 +3,15 @@ name: Build and Deploy
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/*' 
   workflow_dispatch:
-
+    
 env:
   CONTAINER_NAME: image-scraper
   IMAGES_DIR: /var/www/images
+  TARGET_DIR: ~/image-scraper
 
 jobs:
   build-and-deploy:
@@ -15,35 +19,27 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v5
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        load: true
-        tags: ${{ env.CONTAINER_NAME }}:latest
+      run: docker build -t ${{ env.CONTAINER_NAME }}:latest .
 
     - name: Save Docker image
-      run: docker save -o image.tar ${{ env.CONTAINER_NAME }}:latest
-
-    - name: Set up SSH
-      uses: webfactory/ssh-agent@v0.7.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      run: docker save ${{ env.CONTAINER_NAME }}:latest -o ${{ env.CONTAINER_NAME }}.tar
 
     - name: Copy image to server using rsync
+      uses: up9cloud/action-rsync@master
       env:
-        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-      run: |
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
-        rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
-          image.tar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/image.tar
+        HOST: ${{ secrets.SERVER_IP }}
+        USER: ${{ secrets.SERVER_USER }}
+        KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        TARGET: ${{ env.TARGET_DIR }}
+        SOURCE: ${{ env.CONTAINER_NAME }}.tar
+        VERBOSE: true
+        ARGS: -avz --progress
 
     - name: Deploy on server
       uses: appleboy/ssh-action@v1.0.0
@@ -53,7 +49,7 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           # Load the Docker image
-          docker load -i ~/image.tar
+          docker load -i ${{ env.TARGET_DIR }}/${{ env.CONTAINER_NAME }}.tar
           
           # Stop and remove existing container if it exists
           docker stop ${{ env.CONTAINER_NAME }} || true
@@ -80,5 +76,5 @@ jobs:
             ${{ env.CONTAINER_NAME }}:latest
           
           # Clean up
-          rm -f ~/image.tar .env
+          rm -f ${{ env.TARGET_DIR }}/${{ env.CONTAINER_NAME }} .env
           docker image prune -af
